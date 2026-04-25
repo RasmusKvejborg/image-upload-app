@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Local Image Upload Test</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f7f7f4;
+        color: #171717;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+      }
+
+      main {
+        width: min(920px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 32px 0;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(1.6rem, 4vw, 2.5rem);
+        line-height: 1.05;
+      }
+
+      .upload-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 18px;
+        border: 0;
+        border-radius: 8px;
+        background: #0d6efd;
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .upload-button:active {
+        transform: translateY(1px);
+      }
+
+      input[type="file"] {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+      }
+
+      .status {
+        min-height: 24px;
+        margin: 0 0 18px;
+        color: #555;
+      }
+
+      .gallery {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 12px;
+      }
+
+      .image-card {
+        overflow: hidden;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .image-card img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 1;
+        object-fit: cover;
+      }
+
+      .image-card span {
+        display: block;
+        overflow: hidden;
+        padding: 8px;
+        color: #555;
+        font-size: 0.85rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      @media (max-width: 560px) {
+        header {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .upload-button {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Image Upload Test</h1>
+        <label class="upload-button" for="image-input">Select Images</label>
+        <input id="image-input" type="file" accept="image/*" multiple />
+      </header>
+
+      <p id="status" class="status">No images uploaded yet.</p>
+      <section id="gallery" class="gallery" aria-live="polite"></section>
+    </main>
+
+    <script>
+      const input = document.querySelector("#image-input");
+      const statusEl = document.querySelector("#status");
+      const gallery = document.querySelector("#gallery");
+
+      async function fetchImages() {
+        const response = await fetch("/images");
+        if (!response.ok) throw new Error("Could not load images");
+        return response.json();
+      }
+
+      function appendImages(images) {
+        for (const image of images) {
+          const card = document.createElement("article");
+          card.className = "image-card";
+
+          const img = document.createElement("img");
+          img.src = `${image.url}?cache=${Date.now()}`;
+          img.alt = image.filename;
+
+          const caption = document.createElement("span");
+          caption.textContent = image.filename;
+
+          card.append(img, caption);
+          gallery.append(card);
+        }
+      }
+
+      async function refreshGallery() {
+        const images = await fetchImages();
+        gallery.replaceChildren();
+
+        if (images.length === 0) {
+          statusEl.textContent = "No images uploaded yet.";
+          return;
+        }
+
+        appendImages(images);
+        updateStatus();
+      }
+
+      function updateStatus() {
+        const count = gallery.childElementCount;
+        statusEl.textContent = `${count} image${count === 1 ? "" : "s"} in memory.`;
+      }
+
+      input.addEventListener("change", async () => {
+        const selectedFiles = Array.from(input.files);
+        if (selectedFiles.length === 0) return;
+
+        const formData = new FormData();
+        for (const file of selectedFiles) {
+          formData.append("files", file);
+        }
+
+        statusEl.textContent = `Uploading ${selectedFiles.length} image${selectedFiles.length === 1 ? "" : "s"}...`;
+
+        try {
+          const response = await fetch("/upload", {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.detail || "Upload failed");
+          }
+
+          const result = await response.json();
+          input.value = "";
+          appendImages(result.images);
+          updateStatus();
+        } catch (error) {
+          statusEl.textContent = error.message;
+        }
+      });
+
+      refreshGallery().catch((error) => {
+        statusEl.textContent = error.message;
+      });
+    </script>
+  </body>
+</html>
