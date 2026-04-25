@@ -1,15 +1,15 @@
 <!doctype html>
-<html lang="en">
+<html lang="da">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Local Image Upload Test</title>
+    <title>Møbelmatch</title>
     <style>
       :root {
         color-scheme: light;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #f7f7f4;
-        color: #171717;
+        background: #f3f4f1;
+        color: #181816;
       }
 
       * {
@@ -19,12 +19,14 @@
       body {
         margin: 0;
         min-height: 100vh;
+        background:
+          linear-gradient(180deg, #eef1ec 0, #f8f8f5 340px, #f3f4f1 100%);
       }
 
       main {
-        width: min(920px, calc(100% - 32px));
+        width: min(1120px, calc(100% - 32px));
         margin: 0 auto;
-        padding: 32px 0;
+        padding: 28px 0 44px;
       }
 
       header {
@@ -32,13 +34,24 @@
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        margin-bottom: 24px;
+        margin-bottom: 22px;
+        padding: 18px;
+        border: 1px solid #deded8;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.82);
+        box-shadow: 0 10px 30px rgba(20, 25, 20, 0.08);
       }
 
       h1 {
         margin: 0;
-        font-size: clamp(1.6rem, 4vw, 2.5rem);
+        font-size: clamp(1.55rem, 4vw, 2.25rem);
         line-height: 1.05;
+      }
+
+      .subtitle {
+        margin: 6px 0 0;
+        color: #5f665d;
+        line-height: 1.35;
       }
 
       .upload-button {
@@ -49,7 +62,7 @@
         padding: 0 18px;
         border: 0;
         border-radius: 8px;
-        background: #0d6efd;
+        background: #1f5f4a;
         color: #fff;
         font: inherit;
         font-weight: 700;
@@ -71,44 +84,234 @@
 
       .status {
         min-height: 24px;
-        margin: 0 0 18px;
-        color: #555;
+        margin: 0 0 20px;
+        padding: 10px 12px;
+        border: 1px solid #e0e0d9;
+        border-radius: 8px;
+        background: #fff;
+        color: #535951;
+      }
+
+      .view-bar {
+        display: none;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      .back-button {
+        min-height: 38px;
+        padding: 0 14px;
+        border: 1px solid #b9c2b7;
+        border-radius: 8px;
+        background: #fff;
+        color: #181816;
+        font: inherit;
+        cursor: pointer;
       }
 
       .gallery {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-        gap: 12px;
+        grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+        gap: 16px;
       }
 
-      .image-card {
+      .gallery.detail-view {
+        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      }
+
+      .section-title {
+        grid-column: 1 / -1;
+        margin: 12px 0 2px;
+        color: #30352f;
+        font-size: 1.05rem;
+      }
+
+      .folder-card,
+      .image-card,
+      .match-card {
         overflow: hidden;
-        border: 1px solid #ddd;
+        border: 1px solid #deded8;
         border-radius: 8px;
         background: #fff;
+        box-shadow: 0 8px 22px rgba(20, 25, 20, 0.07);
       }
 
-      .image-card img {
+      .folder-card {
+        position: relative;
+        padding: 0;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+      }
+
+      .folder-card:hover {
+        border-color: #aab7a7;
+        box-shadow: 0 12px 30px rgba(20, 25, 20, 0.12);
+        transform: translateY(-2px);
+      }
+
+      .folder-card::before {
+        content: "";
+        position: absolute;
+        z-index: -1;
+        top: -6px;
+        right: 10px;
+        left: 10px;
+        height: 18px;
+        border: 1px solid #deded8;
+        border-bottom: 0;
+        border-radius: 8px 8px 0 0;
+        background: #efefe9;
+      }
+
+      .folder-card strong {
+        display: block;
+        padding: 10px 10px 3px;
+        font-size: 0.94rem;
+        line-height: 1.25;
+        white-space: normal;
+      }
+
+      .folder-card span,
+      .image-card span,
+      .match-card span {
+        display: block;
+        overflow: hidden;
+        padding: 0 10px 10px;
+        color: #5b6259;
+        font-size: 0.85rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .folder-card img,
+      .image-card img,
+      .match-card img {
         display: block;
         width: 100%;
         aspect-ratio: 1;
         object-fit: cover;
       }
 
-      .image-card span {
+      .image-button {
         display: block;
-        overflow: hidden;
-        padding: 8px;
-        color: #555;
-        font-size: 0.85rem;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        width: 100%;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        cursor: zoom-in;
+      }
+
+      .match-card strong {
+        display: block;
+        overflow: visible;
+        padding: 8px 8px 2px;
+        font-size: 0.86rem;
+        line-height: 1.25;
+        text-overflow: unset;
+        white-space: normal;
+      }
+
+      .match-card span {
+        overflow: visible;
+        line-height: 1.35;
+        text-overflow: unset;
+        white-space: normal;
+      }
+
+      .confidence {
+        display: inline-block;
+        margin: 8px 8px 0;
+        padding: 3px 7px;
+        border-radius: 999px;
+        background: #eaf4ee;
+        color: #1f5f4a;
+        font-size: 0.8rem;
+        font-weight: 700;
+      }
+
+      .fallback-search {
+        grid-column: 1 / -1;
+        padding: 12px;
+        border: 1px solid #d7c68f;
+        border-radius: 8px;
+        background: #fff8df;
+        box-shadow: 0 8px 22px rgba(20, 25, 20, 0.06);
+      }
+
+      .fallback-search p {
+        margin: 0 0 10px;
+        line-height: 1.4;
+      }
+
+      .fallback-search a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 8px;
+        margin-bottom: 8px;
+        min-height: 38px;
+        padding: 0 12px;
+        border-radius: 8px;
+        background: #1f5f4a;
+        color: #fff;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .lightbox {
+        width: min(960px, calc(100% - 24px));
+        max-height: calc(100vh - 24px);
+        padding: 0;
+        border: 0;
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .lightbox::backdrop {
+        background: rgba(0, 0, 0, 0.72);
+      }
+
+      .lightbox img {
+        display: block;
+        width: 100%;
+        max-height: calc(100vh - 120px);
+        object-fit: contain;
+        background: #f4f4f4;
+      }
+
+      .lightbox footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px;
+      }
+
+      .lightbox p {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .lightbox button {
+        min-height: 36px;
+        padding: 0 12px;
+        border: 1px solid #bbb;
+        border-radius: 8px;
+        background: #fff;
+        color: #181816;
+        font: inherit;
+        cursor: pointer;
       }
 
       @media (max-width: 560px) {
         header {
           align-items: stretch;
           flex-direction: column;
+          padding: 14px;
         }
 
         .upload-button {
@@ -120,59 +323,219 @@
   <body>
     <main>
       <header>
-        <h1>Image Upload Test</h1>
-        <label class="upload-button" for="image-input">Select Images</label>
+        <div>
+          <h1>Møbelmatch</h1>
+          <p class="subtitle">Upload billeder af et møbel og se de mest lignende produkter i kataloget.</p>
+        </div>
+        <label class="upload-button" for="image-input">Vælg billeder</label>
         <input id="image-input" type="file" accept="image/*" multiple />
       </header>
 
-      <p id="status" class="status">No images uploaded yet.</p>
+      <p id="status" class="status">Ingen uploads endnu.</p>
+      <div id="view-bar" class="view-bar">
+        <button id="back-button" class="back-button" type="button">Tilbage til uploads</button>
+        <span id="view-title"></span>
+      </div>
       <section id="gallery" class="gallery" aria-live="polite"></section>
+      <dialog id="lightbox" class="lightbox">
+        <img id="lightbox-image" alt="" />
+        <footer>
+          <p id="lightbox-caption"></p>
+          <button id="lightbox-close" type="button">Luk</button>
+        </footer>
+      </dialog>
     </main>
 
     <script>
       const input = document.querySelector("#image-input");
       const statusEl = document.querySelector("#status");
+      const viewBar = document.querySelector("#view-bar");
+      const viewTitle = document.querySelector("#view-title");
+      const backButton = document.querySelector("#back-button");
       const gallery = document.querySelector("#gallery");
+      const lightbox = document.querySelector("#lightbox");
+      const lightboxImage = document.querySelector("#lightbox-image");
+      const lightboxCaption = document.querySelector("#lightbox-caption");
+      const lightboxClose = document.querySelector("#lightbox-close");
+      const groups = [];
 
-      async function fetchImages() {
+      async function fetchGroups() {
         const response = await fetch("/images");
-        if (!response.ok) throw new Error("Could not load images");
+        if (!response.ok) throw new Error("Kunne ikke hente uploads");
         return response.json();
+      }
+
+      function displayName(group, index) {
+        if (!group.prediction || group.prediction.low_confidence) return `Upload ${index + 1}`;
+        return group.prediction.name;
+      }
+
+      function confidenceText(percent) {
+        return `${Number(percent || 0).toFixed(1)}% sikkerhed`;
+      }
+
+      function imageElement(image) {
+        const img = document.createElement("img");
+        img.src = `${image.url}?cache=${Date.now()}`;
+        img.alt = image.filename;
+        return img;
+      }
+
+      function clickableImage(image, caption) {
+        const button = document.createElement("button");
+        button.className = "image-button";
+        button.type = "button";
+        button.addEventListener("click", () => openLightbox(image, caption));
+        button.append(imageElement(image));
+        return button;
+      }
+
+      function captionElement(text) {
+        const caption = document.createElement("span");
+        caption.textContent = text;
+        return caption;
+      }
+
+      function renderGroups() {
+        gallery.replaceChildren();
+        gallery.classList.remove("detail-view");
+        viewBar.style.display = "none";
+
+        groups.forEach((group, index) => {
+          const card = document.createElement("button");
+          card.className = "folder-card";
+          card.type = "button";
+          card.addEventListener("click", () => openGroup(group));
+
+          const title = document.createElement("strong");
+          title.textContent = displayName(group, index);
+
+          const confidence = document.createElement("span");
+          confidence.textContent = group.prediction
+            ? confidenceText(group.prediction.confidence_percent)
+            : "Ingen sikkerhed endnu";
+
+          card.append(
+            imageElement(group.cover),
+            title,
+            confidence,
+            captionElement(`${group.count} billede${group.count === 1 ? "" : "r"}`)
+          );
+          gallery.append(card);
+        });
+      }
+
+      function appendGroups(newGroups) {
+        groups.push(...newGroups);
+        renderGroups();
       }
 
       function appendImages(images) {
         for (const image of images) {
           const card = document.createElement("article");
           card.className = "image-card";
-
-          const img = document.createElement("img");
-          img.src = `${image.url}?cache=${Date.now()}`;
-          img.alt = image.filename;
-
-          const caption = document.createElement("span");
-          caption.textContent = image.filename;
-
-          card.append(img, caption);
+          card.append(clickableImage(image, image.filename), captionElement(image.filename));
           gallery.append(card);
         }
       }
 
-      async function refreshGallery() {
-        const images = await fetchImages();
-        gallery.replaceChildren();
+      function appendMatches(matches) {
+        matches.forEach((match, index) => {
+          const card = document.createElement("article");
+          card.className = "match-card";
 
-        if (images.length === 0) {
-          statusEl.textContent = "No images uploaded yet.";
+          const title = document.createElement("strong");
+          title.textContent = `#${index + 1} ${match.name}`;
+
+          const confidence = document.createElement("div");
+          confidence.className = "confidence";
+          confidence.textContent = confidenceText(match.confidence_percent);
+
+          card.append(
+            clickableImage(match, match.name),
+            confidence,
+            title,
+            captionElement(`${match.filename} - score ${match.score}`)
+          );
+          gallery.append(card);
+        });
+      }
+
+      function addSectionTitle(text) {
+        const title = document.createElement("h2");
+        title.className = "section-title";
+        title.textContent = text;
+        gallery.append(title);
+      }
+
+      function addGoogleFallback(group) {
+        if (!group.prediction || !group.prediction.low_confidence) return;
+
+        const panel = document.createElement("aside");
+        panel.className = "fallback-search";
+
+        const text = document.createElement("p");
+        text.textContent = "Sikkerheden er lav. Prøv Google Lens med det første uploadede billede i stedet.";
+
+        const imageUrl = new URL(group.cover.url, window.location.href).href;
+
+        const lensLink = document.createElement("a");
+        lensLink.href = `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(imageUrl)}`;
+        lensLink.target = "_blank";
+        lensLink.rel = "noreferrer";
+        lensLink.textContent = "Søg med første billede i Google Lens";
+
+        const imageLink = document.createElement("a");
+        imageLink.href = group.cover.url;
+        imageLink.target = "_blank";
+        imageLink.rel = "noreferrer";
+        imageLink.textContent = "Åbn første billede";
+
+        panel.append(text, lensLink, imageLink);
+        gallery.append(panel);
+      }
+
+      async function refreshGallery() {
+        const fetchedGroups = await fetchGroups();
+        groups.length = 0;
+        groups.push(...fetchedGroups);
+
+        if (groups.length === 0) {
+          renderGroups();
+          statusEl.textContent = "Ingen uploads endnu.";
           return;
         }
 
-        appendImages(images);
+        renderGroups();
         updateStatus();
       }
 
       function updateStatus() {
-        const count = gallery.childElementCount;
-        statusEl.textContent = `${count} image${count === 1 ? "" : "s"} in memory.`;
+        const groupCount = groups.length;
+        const imageCount = groups.reduce((total, group) => total + group.count, 0);
+        statusEl.textContent = `${groupCount} upload${groupCount === 1 ? "" : "s"}, ${imageCount} billede${imageCount === 1 ? "" : "r"} i hukommelsen.`;
+      }
+
+      function openGroup(group) {
+        gallery.replaceChildren();
+        gallery.classList.add("detail-view");
+        viewBar.style.display = "flex";
+        viewTitle.textContent = group.prediction
+          ? `${group.prediction.name} - ${confidenceText(group.prediction.confidence_percent)}`
+          : `${group.count} billede${group.count === 1 ? "" : "r"}`;
+        statusEl.textContent = "Viser ét upload. Bedste match står længst til venstre.";
+        addSectionTitle("Uploadede billeder");
+        appendImages(group.images);
+        addGoogleFallback(group);
+        addSectionTitle("Top 5 matches fra kataloget");
+        appendMatches(group.matches || []);
+      }
+
+      function openLightbox(image, caption) {
+        lightboxImage.src = `${image.url}?cache=${Date.now()}`;
+        lightboxImage.alt = caption || image.filename;
+        lightboxCaption.textContent = caption || image.filename;
+        lightbox.showModal();
       }
 
       input.addEventListener("change", async () => {
@@ -184,7 +547,7 @@
           formData.append("files", file);
         }
 
-        statusEl.textContent = `Uploading ${selectedFiles.length} image${selectedFiles.length === 1 ? "" : "s"}...`;
+        statusEl.textContent = `Uploader ${selectedFiles.length} billede${selectedFiles.length === 1 ? "" : "r"}...`;
 
         try {
           const response = await fetch("/upload", {
@@ -194,15 +557,30 @@
 
           if (!response.ok) {
             const error = await response.json().catch(() => ({}));
-            throw new Error(error.detail || "Upload failed");
+            throw new Error(error.detail || "Upload fejlede");
           }
 
           const result = await response.json();
           input.value = "";
-          appendImages(result.images);
+          appendGroups([result.group]);
           updateStatus();
         } catch (error) {
           statusEl.textContent = error.message;
+        }
+      });
+
+      backButton.addEventListener("click", () => {
+        renderGroups();
+        updateStatus();
+      });
+
+      lightboxClose.addEventListener("click", () => {
+        lightbox.close();
+      });
+
+      lightbox.addEventListener("click", (event) => {
+        if (event.target === lightbox) {
+          lightbox.close();
         }
       });
 
