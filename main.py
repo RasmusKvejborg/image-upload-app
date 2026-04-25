@@ -1,4 +1,7 @@
 from io import BytesIO
+import gc
+import zipfile
+from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Optional
 from uuid import uuid4
@@ -6,7 +9,7 @@ from uuid import uuid4
 import numpy as np
 import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from transformers import AutoImageProcessor, AutoModel
@@ -14,7 +17,8 @@ from transformers import AutoImageProcessor, AutoModel
 
 app = FastAPI(title="Local Phone Image Upload Test")
 
-images: Dict[str, dict] = {}
+compressed_images: OrderedDict[str, dict] = OrderedDict()
+uploaded_embeddings: Dict[str, np.ndarray] = {}
 upload_groups: Dict[str, dict] = {}
 
 MODEL_NAME = "facebook/dinov2-large"
@@ -24,6 +28,9 @@ INDEX_PATH = Path("image_index.npz")
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 TOP_K_MATCHES = 5
 LOW_CONFIDENCE_THRESHOLD = 91.0
+MAX_COMPRESSED_IMAGES = 100
+COMPRESSED_IMAGE_SIZE = (1200, 900)
+TARGET_JPEG_BYTES = 100 * 1024
 
 processor = None
 model = None
@@ -144,6 +151,86 @@ def image_bytes_to_embedding(data: bytes) -> np.ndarray:
         return image_to_embedding(image)
 
 
+def compressed_image_from_pil(image: Image.Image) -> bytes:
+    original = image.convert("RGB")
+    original.thumbnail(COMPRESSED_IMAGE_SIZE, Image.Resampling.LANCZOS)
+
+    resized = Image.new("RGB", COMPRESSED_IMAGE_SIZE, (245, 245, 245))
+    offset = (
+        (COMPRESSED_IMAGE_SIZE[0] - original.width) // 2,
+        (COMPRESSED_IMAGE_SIZE[1] - original.height) // 2,
+    )
+    resized.paste(original, offset)
+    original.close()
+
+    best_data = b""
+    for quality in range(88, 19, -6):
+        output = BytesIO()
+        resized.save(output, format="JPEG", quality=quality, optimize=True)
+        data = output.getvalue()
+        best_data = data
+        if len(data) <= TARGET_JPEG_BYTES:
+            break
+
+    # Release the resized working copy before returning the compressed bytes.
+    resized.close()
+    return best_data
+
+
+def store_compressed_image(image_id: str, filename: str, data: bytes) -> None:
+    compressed_images[image_id] = {
+        "id": image_id,
+        "filename": filename,
+        "content_type": "image/jpeg",
+        "data": data,
+    }
+    compressed_images.move_to_end(image_id)
+
+    while len(compressed_images) > MAX_COMPRESSED_IMAGES:
+        compressed_images.popitem(last=False)
+
+
+async def process_uploaded_image(uploaded_file: UploadFile) -> tuple[dict, np.ndarray]:
+    image_id = uuid4().hex
+    filename = f"{image_id}.jpg"
+
+    # upload: read the original bytes into a short-lived local variable only.
+    original_bytes = await uploaded_file.read()
+    original_buffer = BytesIO(original_bytes)
+    original_image = Image.open(original_buffer)
+    original_image.load()
+
+    # embedding: generate the vector immediately from the original image.
+    embedding = image_to_embedding(original_image)
+    uploaded_embeddings[image_id] = embedding
+
+    # delete: the raw uploaded bytes are released before compression/storage.
+    del original_bytes
+    original_buffer.close()
+    del original_buffer
+
+    # compress: create the only display image we keep in memory.
+    compressed_data = compressed_image_from_pil(original_image)
+
+    # release: close and delete the decoded original image. After this point,
+    # only compressed JPEG bytes and the embedding remain.
+    original_image.close()
+    del original_image
+    gc.collect()
+
+    # store: FIFO keeps only the latest compressed display images.
+    store_compressed_image(image_id, filename, compressed_data)
+
+    return (
+        {
+            "id": image_id,
+            "filename": filename,
+            "url": f"/image/{image_id}",
+        },
+        embedding,
+    )
+
+
 def cache_matches_files(files: List[Path], cached: np.lib.npyio.NpzFile) -> bool:
     required_keys = {"model_name", "index_version", "embeddings", "paths", "names", "mtimes", "sizes"}
     if not required_keys.issubset(set(cached.files)):
@@ -206,11 +293,10 @@ def get_catalog_index() -> dict:
     return catalog_index
 
 
-def combined_embedding(image_data: List[bytes]) -> np.ndarray:
-    if not image_data:
+def combined_embedding(embeddings: List[np.ndarray]) -> np.ndarray:
+    if not embeddings:
         raise HTTPException(status_code=400, detail="No images were uploaded.")
 
-    embeddings = [image_bytes_to_embedding(data) for data in image_data]
     embedding = np.mean(embeddings, axis=0).astype("float32")
     norm = np.linalg.norm(embedding)
     if norm > 0:
@@ -218,9 +304,9 @@ def combined_embedding(image_data: List[bytes]) -> np.ndarray:
     return embedding
 
 
-def find_matches(image_data: List[bytes], limit: int = TOP_K_MATCHES) -> List[dict]:
+def find_matches(embeddings: List[np.ndarray], limit: int = TOP_K_MATCHES) -> List[dict]:
     index = get_catalog_index()
-    query_embedding = combined_embedding(image_data)
+    query_embedding = combined_embedding(embeddings)
     scores = index["embeddings"] @ query_embedding
     top_indexes = np.argsort(scores)[::-1][:limit]
 
@@ -254,6 +340,12 @@ def group_prediction(matches: List[dict]) -> dict:
     }
 
 
+def safe_download_name(name: str) -> str:
+    safe = "".join(char if char.isalnum() or char in ("-", "_") else "-" for char in name.lower())
+    safe = "-".join(part for part in safe.split("-") if part)
+    return safe[:80] or "upload"
+
+
 @app.post("/upload")
 async def upload(
     files: Optional[List[UploadFile]] = File(None),
@@ -265,28 +357,17 @@ async def upload(
 
     group_id = uuid4().hex
     uploaded = []
+    group_embeddings = []
 
     for uploaded_file in files_to_upload:
         if not uploaded_file.content_type or not uploaded_file.content_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="Only image uploads are supported.")
 
-        image_id = uuid4().hex
-        data = await uploaded_file.read()
-        images[image_id] = {
-            "id": image_id,
-            "filename": uploaded_file.filename or f"{image_id}.jpg",
-            "content_type": uploaded_file.content_type,
-            "data": data,
-        }
-        uploaded.append(
-            {
-                "id": image_id,
-                "filename": images[image_id]["filename"],
-                "url": f"/image/{image_id}",
-            }
-        )
+        image_info, embedding = await process_uploaded_image(uploaded_file)
+        uploaded.append(image_info)
+        group_embeddings.append(embedding)
 
-    matches = find_matches([images[image["id"]]["data"] for image in uploaded])
+    matches = find_matches(group_embeddings)
     prediction = group_prediction(matches)
 
     upload_groups[group_id] = {
@@ -311,39 +392,69 @@ async def upload(
 
 @app.get("/images")
 async def list_images():
-    return [
-        {
-            "id": group["id"],
-            "cover": {
-                "id": images[group["image_ids"][0]]["id"],
-                "filename": images[group["image_ids"][0]]["filename"],
-                "url": f"/image/{group['image_ids'][0]}",
-            },
-            "images": [
-                {
-                    "id": image_id,
-                    "filename": images[image_id]["filename"],
-                    "url": f"/image/{image_id}",
-                }
-                for image_id in group["image_ids"]
-                if image_id in images
-            ],
-            "count": len(group["image_ids"]),
-            "matches": group.get("matches", []),
-            "prediction": group.get("prediction", group_prediction(group.get("matches", []))),
-        }
-        for group in upload_groups.values()
-        if group["image_ids"] and group["image_ids"][0] in images
-    ]
+    groups = []
+    for group in upload_groups.values():
+        available_images = [
+            {
+                "id": image_id,
+                "filename": f"{image_id}.jpg",
+                "url": f"/image/{image_id}",
+            }
+            for image_id in group["image_ids"]
+            if image_id in compressed_images
+        ]
+        if not available_images:
+            continue
+
+        groups.append(
+            {
+                "id": group["id"],
+                "cover": available_images[0],
+                "images": available_images,
+                "count": len(group["image_ids"]),
+                "matches": group.get("matches", []),
+                "prediction": group.get("prediction", group_prediction(group.get("matches", []))),
+            }
+        )
+    return groups
 
 
 @app.get("/image/{image_id}")
 async def get_image(image_id: str):
-    image = images.get(image_id)
+    image = compressed_images.get(image_id)
     if image is None:
         raise HTTPException(status_code=404, detail="Image not found.")
 
     return Response(content=image["data"], media_type=image["content_type"])
+
+
+@app.get("/download-group/{group_id}")
+async def download_group(group_id: str):
+    group = upload_groups.get(group_id)
+    if group is None:
+        raise HTTPException(status_code=404, detail="Upload group not found.")
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for index, image_id in enumerate(group["image_ids"], 1):
+            image = compressed_images.get(image_id)
+            if image is None:
+                continue
+
+            original_name = Path(image["filename"]).stem
+            filename = f"{index:02d}-{safe_download_name(original_name)}.jpg"
+            archive.writestr(filename, image["data"])
+
+    if not buffer.tell():
+        raise HTTPException(status_code=404, detail="No compressed images available for this group.")
+
+    buffer.seek(0)
+    filename = f"{safe_download_name(group.get('prediction', {}).get('name', 'upload'))}.zip"
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/catalog-image/{catalog_id}")
@@ -357,6 +468,11 @@ async def get_catalog_image(catalog_id: int):
 
 @app.get("/")
 async def index():
+    return FileResponse("static/index.html")
+
+
+@app.get("/uploads/{group_id}")
+async def upload_page(group_id: str):
     return FileResponse("static/index.html")
 
 

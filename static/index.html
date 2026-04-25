@@ -82,32 +82,50 @@
         clip: rect(0, 0, 0, 0);
       }
 
-      .status {
-        min-height: 24px;
-        margin: 0 0 20px;
-        padding: 10px 12px;
-        border: 1px solid #e0e0d9;
-        border-radius: 8px;
-        background: #fff;
-        color: #535951;
-      }
-
       .view-bar {
         display: none;
         align-items: center;
+        justify-content: space-between;
         gap: 12px;
         margin-bottom: 18px;
       }
 
-      .back-button {
-        min-height: 38px;
-        padding: 0 14px;
-        border: 1px solid #b9c2b7;
+      .progress-panel {
+        display: none;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 18px;
+        padding: 12px 14px;
+        border: 1px solid #d9ddd5;
         border-radius: 8px;
         background: #fff;
-        color: #181816;
-        font: inherit;
-        cursor: pointer;
+        box-shadow: 0 8px 22px rgba(20, 25, 20, 0.07);
+        color: #30352f;
+      }
+
+      .progress-panel.is-visible {
+        display: flex;
+      }
+
+      .spinner {
+        width: 20px;
+        height: 20px;
+        flex: 0 0 auto;
+        border: 3px solid #dce4da;
+        border-top-color: #1f5f4a;
+        border-radius: 999px;
+        animation: spin 850ms linear infinite;
+      }
+
+      .progress-text {
+        margin: 0;
+        font-weight: 650;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .gallery {
@@ -203,6 +221,37 @@
         border: 0;
         background: transparent;
         cursor: zoom-in;
+      }
+
+      .image-frame {
+        position: relative;
+      }
+
+      .download-button {
+        position: absolute;
+        right: 8px;
+        bottom: 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 36px;
+        min-height: 36px;
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 999px;
+        background: rgba(24, 24, 22, 0.78);
+        color: #fff;
+        text-decoration: none;
+        backdrop-filter: blur(4px);
+      }
+
+      .download-button svg {
+        width: 18px;
+        height: 18px;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        fill: none;
       }
 
       .match-card strong {
@@ -317,6 +366,12 @@
         .upload-button {
           width: 100%;
         }
+
+        .view-bar {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
       }
     </style>
   </head>
@@ -325,16 +380,17 @@
       <header>
         <div>
           <h1>Møbelmatch</h1>
-          <p class="subtitle">Upload billeder af et møbel og se de mest lignende produkter i kataloget.</p>
         </div>
         <label class="upload-button" for="image-input">Vælg billeder</label>
         <input id="image-input" type="file" accept="image/*" multiple />
       </header>
 
-      <p id="status" class="status">Ingen uploads endnu.</p>
       <div id="view-bar" class="view-bar">
-        <button id="back-button" class="back-button" type="button">Tilbage til uploads</button>
         <span id="view-title"></span>
+      </div>
+      <div id="progress-panel" class="progress-panel" role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <p id="progress-text" class="progress-text">Uploader billeder...</p>
       </div>
       <section id="gallery" class="gallery" aria-live="polite"></section>
       <dialog id="lightbox" class="lightbox">
@@ -348,16 +404,24 @@
 
     <script>
       const input = document.querySelector("#image-input");
-      const statusEl = document.querySelector("#status");
       const viewBar = document.querySelector("#view-bar");
       const viewTitle = document.querySelector("#view-title");
-      const backButton = document.querySelector("#back-button");
+      const progressPanel = document.querySelector("#progress-panel");
+      const progressText = document.querySelector("#progress-text");
       const gallery = document.querySelector("#gallery");
       const lightbox = document.querySelector("#lightbox");
       const lightboxImage = document.querySelector("#lightbox-image");
       const lightboxCaption = document.querySelector("#lightbox-caption");
       const lightboxClose = document.querySelector("#lightbox-close");
       const groups = [];
+      const progressMessages = [
+        "Forbereder billeder...",
+        "Sammenligner med kataloget...",
+        "Finder de bedste matches...",
+        "Komprimerer billederne...",
+        "Gemmer uploadet..."
+      ];
+      let progressTimer = null;
 
       async function fetchGroups() {
         const response = await fetch("/images");
@@ -377,7 +441,7 @@
       function imageElement(image) {
         const img = document.createElement("img");
         img.src = `${image.url}?cache=${Date.now()}`;
-        img.alt = image.filename;
+        img.alt = image.label || image.filename || "";
         return img;
       }
 
@@ -390,10 +454,70 @@
         return button;
       }
 
+      function downloadIcon() {
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("aria-hidden", "true");
+
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4");
+
+        const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        polyline.setAttribute("points", "7 10 12 15 17 10");
+
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", "12");
+        line.setAttribute("x2", "12");
+        line.setAttribute("y1", "15");
+        line.setAttribute("y2", "3");
+
+        svg.append(path, polyline, line);
+        return svg;
+      }
+
+      function imageFrame(image, caption, allowDownload = false) {
+        const frame = document.createElement("div");
+        frame.className = "image-frame";
+
+        frame.append(clickableImage(image, caption));
+
+        if (allowDownload) {
+          const download = document.createElement("a");
+          download.className = "download-button";
+          download.href = image.url;
+          download.download = `${caption.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "billede"}.jpg`;
+          download.title = "Download billede";
+          download.setAttribute("aria-label", "Download billede");
+          download.append(downloadIcon());
+          download.addEventListener("click", (event) => event.stopPropagation());
+          frame.append(download);
+        }
+
+        return frame;
+      }
+
       function captionElement(text) {
         const caption = document.createElement("span");
         caption.textContent = text;
         return caption;
+      }
+
+      function startProgress() {
+        let index = 0;
+        progressText.textContent = progressMessages[index];
+        progressPanel.classList.add("is-visible");
+        progressTimer = window.setInterval(() => {
+          index = Math.min(index + 1, progressMessages.length - 1);
+          progressText.textContent = progressMessages[index];
+        }, 1500);
+      }
+
+      function stopProgress() {
+        progressPanel.classList.remove("is-visible");
+        if (progressTimer) {
+          window.clearInterval(progressTimer);
+          progressTimer = null;
+        }
       }
 
       function renderGroups() {
@@ -405,7 +529,7 @@
           const card = document.createElement("button");
           card.className = "folder-card";
           card.type = "button";
-          card.addEventListener("click", () => openGroup(group));
+          card.addEventListener("click", () => navigateToGroup(group));
 
           const title = document.createElement("strong");
           title.textContent = displayName(group, index);
@@ -430,13 +554,42 @@
         renderGroups();
       }
 
+      function currentGroupFromPath() {
+        const match = window.location.pathname.match(/^\/uploads\/([^/]+)$/);
+        if (!match) return null;
+        return groups.find((group) => group.id === match[1]) || null;
+      }
+
+      function navigateToGroup(group) {
+        history.pushState({ groupId: group.id }, "", `/uploads/${group.id}`);
+        openGroup(group);
+      }
+
+      function navigateToOverview() {
+        history.pushState({}, "", "/");
+        renderGroups();
+      }
+
+      function renderRoute() {
+        const group = currentGroupFromPath();
+        if (group) {
+          openGroup(group);
+          return;
+        }
+
+        if (window.location.pathname.startsWith("/uploads/")) {
+          history.replaceState({}, "", "/");
+        }
+        renderGroups();
+      }
+
       function appendImages(images) {
-        for (const image of images) {
+        images.forEach((image, index) => {
           const card = document.createElement("article");
           card.className = "image-card";
-          card.append(clickableImage(image, image.filename), captionElement(image.filename));
+          card.append(imageFrame(image, `Uploadet billede ${index + 1}`, true));
           gallery.append(card);
-        }
+        });
       }
 
       function appendMatches(matches) {
@@ -452,7 +605,7 @@
           confidence.textContent = confidenceText(match.confidence_percent);
 
           card.append(
-            clickableImage(match, match.name),
+            imageFrame(match, match.name),
             confidence,
             title,
             captionElement(`${match.filename} - score ${match.score}`)
@@ -483,15 +636,9 @@
         lensLink.href = `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(imageUrl)}`;
         lensLink.target = "_blank";
         lensLink.rel = "noreferrer";
-        lensLink.textContent = "Søg med første billede i Google Lens";
+        lensLink.textContent = "Søg med Google Lens";
 
-        const imageLink = document.createElement("a");
-        imageLink.href = group.cover.url;
-        imageLink.target = "_blank";
-        imageLink.rel = "noreferrer";
-        imageLink.textContent = "Åbn første billede";
-
-        panel.append(text, lensLink, imageLink);
+        panel.append(text, lensLink);
         gallery.append(panel);
       }
 
@@ -502,18 +649,10 @@
 
         if (groups.length === 0) {
           renderGroups();
-          statusEl.textContent = "Ingen uploads endnu.";
           return;
         }
 
-        renderGroups();
-        updateStatus();
-      }
-
-      function updateStatus() {
-        const groupCount = groups.length;
-        const imageCount = groups.reduce((total, group) => total + group.count, 0);
-        statusEl.textContent = `${groupCount} upload${groupCount === 1 ? "" : "s"}, ${imageCount} billede${imageCount === 1 ? "" : "r"} i hukommelsen.`;
+        renderRoute();
       }
 
       function openGroup(group) {
@@ -523,8 +662,6 @@
         viewTitle.textContent = group.prediction
           ? `${group.prediction.name} - ${confidenceText(group.prediction.confidence_percent)}`
           : `${group.count} billede${group.count === 1 ? "" : "r"}`;
-        statusEl.textContent = "Viser ét upload. Bedste match står længst til venstre.";
-        addSectionTitle("Uploadede billeder");
         appendImages(group.images);
         addGoogleFallback(group);
         addSectionTitle("Top 5 matches fra kataloget");
@@ -547,7 +684,7 @@
           formData.append("files", file);
         }
 
-        statusEl.textContent = `Uploader ${selectedFiles.length} billede${selectedFiles.length === 1 ? "" : "r"}...`;
+        startProgress();
 
         try {
           const response = await fetch("/upload", {
@@ -562,16 +699,17 @@
 
           const result = await response.json();
           input.value = "";
-          appendGroups([result.group]);
-          updateStatus();
+          groups.push(result.group);
+          navigateToGroup(result.group);
         } catch (error) {
-          statusEl.textContent = error.message;
+          console.error(error);
+        } finally {
+          stopProgress();
         }
       });
 
-      backButton.addEventListener("click", () => {
-        renderGroups();
-        updateStatus();
+      window.addEventListener("popstate", () => {
+        renderRoute();
       });
 
       lightboxClose.addEventListener("click", () => {
@@ -584,9 +722,7 @@
         }
       });
 
-      refreshGallery().catch((error) => {
-        statusEl.textContent = error.message;
-      });
+      refreshGallery().catch((error) => console.error(error));
     </script>
   </body>
 </html>
