@@ -1,5 +1,6 @@
 from io import BytesIO
 import gc
+import json
 import zipfile
 from collections import OrderedDict
 from pathlib import Path
@@ -25,6 +26,7 @@ MODEL_NAME = "facebook/dinov2-large"
 INDEX_VERSION = "furniture-focused-v1"
 CATALOG_DIR = Path("images")
 INDEX_PATH = Path("image_index.npz")
+PRODUCT_TEXTS_PATH = Path("product_texts.json")
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 TOP_K_MATCHES = 5
 LOW_CONFIDENCE_THRESHOLD = 91.0
@@ -35,10 +37,27 @@ TARGET_JPEG_BYTES = 100 * 1024
 processor = None
 model = None
 catalog_index: Optional[dict] = None
+product_texts: Optional[dict] = None
 
 
 def product_name_from_path(path: Path) -> str:
     return path.stem.replace("-", " ").replace("_", " ")
+
+
+def get_product_texts() -> dict:
+    global product_texts
+
+    if product_texts is None:
+        if PRODUCT_TEXTS_PATH.exists():
+            product_texts = json.loads(PRODUCT_TEXTS_PATH.read_text(encoding="utf-8"))
+        else:
+            product_texts = {}
+
+    return product_texts
+
+
+def product_metadata_for_path(path: Path) -> dict:
+    return get_product_texts().get(path.name, {})
 
 
 def catalog_files() -> List[Path]:
@@ -310,17 +329,24 @@ def find_matches(embeddings: List[np.ndarray], limit: int = TOP_K_MATCHES) -> Li
     scores = index["embeddings"] @ query_embedding
     top_indexes = np.argsort(scores)[::-1][:limit]
 
-    return [
-        {
-            "id": int(match_index),
-            "filename": index["paths"][match_index].name,
-            "name": index["names"][match_index],
-            "score": round(float(scores[match_index]), 4),
-            "confidence_percent": round(max(0.0, min(1.0, float(scores[match_index]))) * 100, 1),
-            "url": f"/catalog-image/{int(match_index)}",
-        }
-        for match_index in top_indexes
-    ]
+    matches = []
+    for match_index in top_indexes:
+        path = index["paths"][match_index]
+        metadata = product_metadata_for_path(path)
+        matches.append(
+            {
+                "id": int(match_index),
+                "filename": path.name,
+                "name": metadata.get("name") or index["names"][match_index],
+                "description": metadata.get("description", ""),
+                "details": metadata.get("details", ""),
+                "product_url": metadata.get("url", ""),
+                "score": round(float(scores[match_index]), 4),
+                "confidence_percent": round(max(0.0, min(1.0, float(scores[match_index]))) * 100, 1),
+                "url": f"/catalog-image/{int(match_index)}",
+            }
+        )
+    return matches
 
 
 def group_prediction(matches: List[dict]) -> dict:
@@ -417,6 +443,19 @@ async def list_images():
             }
         )
     return groups
+
+
+@app.delete("/uploads/{group_id}")
+async def delete_upload_group(group_id: str):
+    group = upload_groups.pop(group_id, None)
+    if group is None:
+        raise HTTPException(status_code=404, detail="Upload group not found.")
+
+    for image_id in group["image_ids"]:
+        compressed_images.pop(image_id, None)
+        uploaded_embeddings.pop(image_id, None)
+
+    return {"deleted": True, "id": group_id}
 
 
 @app.get("/image/{image_id}")

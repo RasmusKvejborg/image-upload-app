@@ -155,13 +155,20 @@
         box-shadow: 0 8px 22px rgba(20, 25, 20, 0.07);
       }
 
+      .match-card {
+        cursor: pointer;
+        transition: border-color 140ms ease, box-shadow 140ms ease;
+      }
+
+      .match-card.is-selected {
+        border-color: #1f5f4a;
+        box-shadow: 0 0 0 4px #1f5f4a, 0 10px 26px rgba(20, 25, 20, 0.1);
+      }
+
       .folder-card {
         position: relative;
         padding: 0;
         color: inherit;
-        font: inherit;
-        text-align: left;
-        cursor: pointer;
         transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
       }
 
@@ -183,6 +190,18 @@
         border-bottom: 0;
         border-radius: 8px 8px 0 0;
         background: #efefe9;
+      }
+
+      .folder-open-button {
+        display: block;
+        width: 100%;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
       }
 
       .folder-card strong {
@@ -212,6 +231,45 @@
         width: 100%;
         aspect-ratio: 1;
         object-fit: cover;
+      }
+
+      .delete-folder-button {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 999px;
+        background: rgba(24, 24, 22, 0.78);
+        color: #fff;
+        cursor: pointer;
+        opacity: 0;
+        transform: translateY(-4px);
+        transition: opacity 140ms ease, transform 140ms ease, background 140ms ease;
+      }
+
+      .folder-card:hover .delete-folder-button,
+      .delete-folder-button:focus-visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .delete-folder-button:hover {
+        background: rgba(145, 32, 32, 0.92);
+      }
+
+      .delete-folder-button svg {
+        width: 18px;
+        height: 18px;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        fill: none;
       }
 
       .image-button {
@@ -269,6 +327,39 @@
         line-height: 1.35;
         text-overflow: unset;
         white-space: normal;
+      }
+
+      .product-text {
+        grid-column: 1 / -1;
+        margin: 8px;
+        padding: 14px;
+        border: 1px solid #d9ddd5;
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: 0 8px 22px rgba(20, 25, 20, 0.07);
+        color: #30352f;
+        font-size: 0.95rem;
+        line-height: 1.45;
+      }
+
+      .product-text strong {
+        display: block;
+        margin-bottom: 8px;
+        color: #181816;
+        font-size: 1rem;
+      }
+
+      .product-text p {
+        margin: 0 0 8px;
+      }
+
+      .product-text p:last-child {
+        margin-bottom: 0;
+      }
+
+      .product-text a {
+        color: #1f5f4a;
+        font-weight: 700;
       }
 
       .confidence {
@@ -430,12 +521,21 @@
       }
 
       function displayName(group, index) {
+        const match = selectedMatch(group);
+        if (match) return match.name;
         if (!group.prediction || group.prediction.low_confidence) return `Upload ${index + 1}`;
         return group.prediction.name;
       }
 
       function confidenceText(percent) {
         return `${Number(percent || 0).toFixed(1)}% sikkerhed`;
+      }
+
+      function selectedMatch(group) {
+        const matches = group.matches || [];
+        if (matches.length === 0) return null;
+        const index = Number.isInteger(group.selectedMatchIndex) ? group.selectedMatchIndex : 0;
+        return matches[index] || matches[0];
       }
 
       function imageElement(image) {
@@ -449,7 +549,10 @@
         const button = document.createElement("button");
         button.className = "image-button";
         button.type = "button";
-        button.addEventListener("click", () => openLightbox(image, caption));
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          openLightbox(image, caption);
+        });
         button.append(imageElement(image));
         return button;
       }
@@ -473,6 +576,47 @@
 
         svg.append(path, polyline, line);
         return svg;
+      }
+
+      function trashIcon() {
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("aria-hidden", "true");
+
+        ["M3 6h18", "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"].forEach((d) => {
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", d);
+          svg.append(path);
+        });
+
+        [[10, 11, 10, 17], [14, 11, 14, 17]].forEach(([x1, y1, x2, y2]) => {
+          const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          line.setAttribute("x1", x1);
+          line.setAttribute("x2", x2);
+          line.setAttribute("y1", y1);
+          line.setAttribute("y2", y2);
+          svg.append(line);
+        });
+
+        return svg;
+      }
+
+      async function deleteGroup(group) {
+        const response = await fetch(`/uploads/${group.id}`, { method: "DELETE" });
+        if (!response.ok && response.status !== 404) {
+          throw new Error("Kunne ikke slette mappen");
+        }
+
+        const index = groups.findIndex((item) => item.id === group.id);
+        if (index !== -1) {
+          groups.splice(index, 1);
+        }
+
+        if (window.location.pathname === `/uploads/${group.id}`) {
+          navigateToOverview();
+          return;
+        }
+        renderGroups();
       }
 
       function imageFrame(image, caption, allowDownload = false) {
@@ -526,25 +670,49 @@
         viewBar.style.display = "none";
 
         groups.forEach((group, index) => {
-          const card = document.createElement("button");
+          const card = document.createElement("article");
           card.className = "folder-card";
-          card.type = "button";
-          card.addEventListener("click", () => navigateToGroup(group));
+
+          const openButton = document.createElement("button");
+          openButton.className = "folder-open-button";
+          openButton.type = "button";
+          openButton.addEventListener("click", () => navigateToGroup(group));
 
           const title = document.createElement("strong");
           title.textContent = displayName(group, index);
 
           const confidence = document.createElement("span");
-          confidence.textContent = group.prediction
+          const match = selectedMatch(group);
+          confidence.textContent = match
+            ? confidenceText(match.confidence_percent)
+            : group.prediction
             ? confidenceText(group.prediction.confidence_percent)
             : "Ingen sikkerhed endnu";
 
-          card.append(
+          const deleteButton = document.createElement("button");
+          deleteButton.className = "delete-folder-button";
+          deleteButton.type = "button";
+          deleteButton.title = "Slet mappe";
+          deleteButton.setAttribute("aria-label", "Slet mappe");
+          deleteButton.append(trashIcon());
+          deleteButton.addEventListener("click", async (event) => {
+            event.stopPropagation();
+            deleteButton.disabled = true;
+            try {
+              await deleteGroup(group);
+            } catch (error) {
+              console.error(error);
+              deleteButton.disabled = false;
+            }
+          });
+
+          openButton.append(
             imageElement(group.cover),
             title,
             confidence,
             captionElement(`${group.count} billede${group.count === 1 ? "" : "r"}`)
           );
+          card.append(openButton, deleteButton);
           gallery.append(card);
         });
       }
@@ -592,13 +760,78 @@
         });
       }
 
-      function appendMatches(matches) {
+      function updateGroupTitle(group) {
+        const match = selectedMatch(group);
+        if (match) {
+          viewTitle.textContent = `${match.name} - ${confidenceText(match.confidence_percent)}`;
+          return;
+        }
+
+        viewTitle.textContent = group.prediction
+          ? `${group.prediction.name} - ${confidenceText(group.prediction.confidence_percent)}`
+          : `${group.count} billede${group.count === 1 ? "" : "r"}`;
+      }
+
+      function addSelectedProductText(group) {
+        const match = selectedMatch(group);
+        if (!match || !match.description) return;
+
+        const productText = document.createElement("aside");
+        productText.className = "product-text";
+
+        const title = document.createElement("strong");
+        title.textContent = match.name;
+        productText.append(title);
+
+        const description = document.createElement("p");
+        description.textContent = match.description;
+        productText.append(description);
+
+        if (match.details) {
+          const details = document.createElement("p");
+          details.textContent = match.details;
+          productText.append(details);
+        }
+
+        if (match.product_url) {
+          const link = document.createElement("a");
+          link.href = match.product_url;
+          link.target = "_blank";
+          link.rel = "noreferrer";
+          link.textContent = "Åbn produkt";
+          productText.append(link);
+        }
+
+        gallery.append(productText);
+      }
+
+      function selectMatch(group, index) {
+        group.selectedMatchIndex = index;
+        openGroup(group);
+      }
+
+      function appendMatches(group) {
+        const matches = group.matches || [];
         matches.forEach((match, index) => {
           const card = document.createElement("article");
           card.className = "match-card";
+          const isSelected = (group.selectedMatchIndex || 0) === index;
+          if (isSelected) {
+            card.classList.add("is-selected");
+          }
+          card.tabIndex = 0;
+          card.setAttribute("role", "button");
+          card.setAttribute("aria-pressed", isSelected ? "true" : "false");
+          card.addEventListener("click", () => selectMatch(group, index));
+          card.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              selectMatch(group, index);
+            }
+          });
 
           const title = document.createElement("strong");
-          title.textContent = `#${index + 1} ${match.name}`;
+          title.textContent = match.name;
 
           const confidence = document.createElement("div");
           confidence.className = "confidence";
@@ -610,6 +843,7 @@
             title,
             captionElement(`${match.filename} - score ${match.score}`)
           );
+
           gallery.append(card);
         });
       }
@@ -658,14 +892,12 @@
       function openGroup(group) {
         gallery.replaceChildren();
         gallery.classList.add("detail-view");
-        viewBar.style.display = "flex";
-        viewTitle.textContent = group.prediction
-          ? `${group.prediction.name} - ${confidenceText(group.prediction.confidence_percent)}`
-          : `${group.count} billede${group.count === 1 ? "" : "r"}`;
+        viewBar.style.display = "none";
         appendImages(group.images);
         addGoogleFallback(group);
+        addSelectedProductText(group);
         addSectionTitle("Top 5 matches fra kataloget");
-        appendMatches(group.matches || []);
+        appendMatches(group);
       }
 
       function openLightbox(image, caption) {
